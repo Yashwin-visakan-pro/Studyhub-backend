@@ -1,17 +1,12 @@
 
 export default async function handler(req, res) {
-    const allowedOrigin = process.env.ALLOWED_ORIGIN;
-    const origin = req.headers.origin;
 
-    // CORS configuration
-    if (origin && origin === allowedOrigin) {
-        res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
-    }
-
-    res.setHeader("Vary", "Origin");
+    // CORS - allow browser requests from any origin
+    res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
+    // Handle browser preflight request
     if (req.method === "OPTIONS") {
         return res.status(204).end();
     }
@@ -22,21 +17,22 @@ export default async function handler(req, res) {
         });
     }
 
-    // Check API key
     const apiKey = process.env.GROQ_API_KEY;
 
     if (!apiKey) {
         return res.status(500).json({
-            error: "Groq API key is not configured."
+            error: "Groq API key is missing."
         });
     }
 
     try {
         const { messages } = req.body || {};
 
-        // Validate messages
-        if (!Array.isArray(messages) || messages.length === 0 ||
-            messages.length > 12) {
+        if (
+            !Array.isArray(messages) ||
+            messages.length === 0 ||
+            messages.length > 12
+        ) {
             return res.status(400).json({
                 error: "Invalid messages."
             });
@@ -49,7 +45,7 @@ export default async function handler(req, res) {
                 !message ||
                 !["user", "assistant"].includes(message.role) ||
                 typeof message.content !== "string" ||
-                message.content.length === 0 ||
+                !message.content.trim() ||
                 message.content.length > 6000
             ) {
                 return res.status(400).json({
@@ -63,23 +59,6 @@ export default async function handler(req, res) {
             });
         }
 
-        const systemPrompt = `
-You are JARVIS Lite, the AI study assistant
-inside Study Hub.
-
-Help students with:
-- School subjects and concepts
-- Exam preparation
-- Timetables and study planning
-- Homework explanations
-- General questions
-
-Be friendly, clear and accurate.
-Use simple explanations when appropriate.
-Never invent facts when uncertain.
-`;
-
-        // Call Groq
         const response = await fetch(
             "https://api.groq.com/openai/v1/chat/completions",
             {
@@ -93,7 +72,7 @@ Never invent facts when uncertain.
                     messages: [
                         {
                             role: "system",
-                            content: systemPrompt
+                            content: "You are JARVIS Lite, a helpful study assistant. Explain concepts clearly, help with school subjects, and support exam preparation."
                         },
                         ...validMessages
                     ],
@@ -106,24 +85,16 @@ Never invent facts when uncertain.
         const data = await response.json();
 
         if (!response.ok) {
-            console.error("Groq API error:", data);
+            console.error("Groq error:", data);
 
             return res.status(502).json({
-                error: "Groq could not process the request."
-            });
-        }
-
-        const answer =
-            data.choices?.[0]?.message?.content;
-
-        if (!answer) {
-            return res.status(502).json({
-                error: "No response received from Groq."
+                error: "Groq API request failed."
             });
         }
 
         return res.status(200).json({
-            answer
+            answer: data.choices?.[0]?.message?.content ||
+                "No response received."
         });
 
     } catch (error) {
